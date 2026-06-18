@@ -1,25 +1,25 @@
 from datetime import datetime, timedelta
 
-# ---- Status constants ----
+
 DRIVING = "driving"
 ON_DUTY_NOT_DRIVING = "on_duty_not_driving"
 OFF_DUTY = "off_duty"
 SLEEPER = "sleeper"
 
-# ---- HOS Rule constants (in minutes, since that's our smallest unit) ----
-MAX_DRIVING_PER_DAY = 11 * 60          # 11 hour driving limit
-MAX_DUTY_WINDOW = 14 * 60              # 14 hour on-duty window
-BREAK_AFTER_DRIVING = 8 * 60           # need 30 min break after 8 cumulative hrs driving
-REQUIRED_BREAK = 30                    # the break itself, in minutes
-REQUIRED_OFF_DUTY = 10 * 60            # 10 consecutive hours off duty between shifts
+
+MAX_DRIVING_PER_DAY = 11 * 60         
+MAX_DUTY_WINDOW = 14 * 60              
+BREAK_AFTER_DRIVING = 8 * 60           
+REQUIRED_BREAK = 30                    
+REQUIRED_OFF_DUTY = 10 * 60            
 FUEL_STOP_EVERY_MILES = 1000
 FUEL_STOP_DURATION = 30                # minutes
 PICKUP_DROPOFF_DURATION = 60           # minutes
-MAX_CYCLE_HOURS = 70 * 60              # 70 hour / 8 day limit
+MAX_CYCLE_HOURS = 70 * 60              
 
 
 class Segment:
-    """One continuous block of time in a single status."""
+    
     def __init__(self, status, start_time, duration_minutes, location_label=""):
         self.status = status
         self.start_time = start_time
@@ -43,8 +43,8 @@ class TripPlanner:
                  cycle_hours_used, start_time=None):
         self.total_distance = total_distance_miles
         self.avg_speed_mph = avg_speed_mph
-        self.pickup_distance = pickup_distance_miles      # distance from start to pickup
-        self.dropoff_distance = dropoff_distance_miles    # distance from start to dropoff (total trip end)
+        self.pickup_distance = pickup_distance_miles      
+        self.dropoff_distance = dropoff_distance_miles    
 
         self.cycle_minutes_used = cycle_hours_used * 60
         self.start_time = start_time or datetime.now()
@@ -59,11 +59,11 @@ class TripPlanner:
         self.segments = []
         self.current_time = self.start_time
 
-        # flags so we only trigger pickup/dropoff once
+        
         self.pickup_done = False
         self.dropoff_done = False
 
-    # ---------- helpers ----------
+ 
 
     def _add_segment(self, status, duration_minutes, label=""):
         seg = Segment(status, self.current_time, duration_minutes, label)
@@ -88,13 +88,8 @@ class TripPlanner:
     # ---------- core loop ----------
 
     def plan(self):
-        """
-        Walk through the trip in chunks. At each step we find the SMALLEST
-        constraint that would trigger next, drive up to that point, then
-        apply whichever stop is needed (break, fuel, pickup, dropoff, or
-        end-of-day rest). Repeat until distance_covered >= total_distance.
-        """
-        safety_counter = 0  # avoid infinite loops while debugging
+      
+        safety_counter = 0  
 
         while self.distance_covered < self.total_distance:
             safety_counter += 1
@@ -103,20 +98,18 @@ class TripPlanner:
 
             remaining_distance = self.total_distance - self.distance_covered
 
-            # Figure out how many minutes of DRIVING we can do before hitting
-            # whichever limit comes first.
+        
             minutes_to_11hr_limit = MAX_DRIVING_PER_DAY - self.minutes_driven_today
             minutes_to_14hr_window = MAX_DUTY_WINDOW - self.minutes_on_duty_today
             minutes_to_break = BREAK_AFTER_DRIVING - self.minutes_since_break
 
-            # convert remaining distance to minutes of driving needed
+        
             minutes_to_finish_trip = (remaining_distance / self.avg_speed_mph) * 60
 
-            # convert "miles until next fuel stop" to minutes of driving
+          
             miles_to_fuel = FUEL_STOP_EVERY_MILES - self.miles_since_fuel
             minutes_to_fuel = (miles_to_fuel / self.avg_speed_mph) * 60
 
-            # distance (in minutes of driving) until pickup / dropoff trigger
             minutes_to_pickup = None
             if not self.pickup_done:
                 dist_to_pickup = self.pickup_distance - self.distance_covered
@@ -142,11 +135,11 @@ class TripPlanner:
             if minutes_to_dropoff is not None:
                 candidates.append((minutes_to_dropoff, "dropoff"))
 
-            # pick whichever happens soonest (smallest positive minutes)
+            
             candidates = [c for c in candidates if c[0] > 0.01]
             drive_minutes, trigger = min(candidates, key=lambda c: c[0])
 
-            # ---- drive for that many minutes ----
+        
             drive_minutes = round(drive_minutes, 2)
             miles_this_leg = (drive_minutes / 60) * self.avg_speed_mph
 
@@ -157,7 +150,7 @@ class TripPlanner:
             self.minutes_since_break += drive_minutes
             self.miles_since_fuel += miles_this_leg
 
-            # ---- apply whichever trigger fired ----
+           
             if trigger == "finish":
                 self.dropoff_done = True
                 self._do_on_duty_stop(PICKUP_DROPOFF_DURATION, "Drop-off")
@@ -168,7 +161,7 @@ class TripPlanner:
                 self._do_on_duty_stop(PICKUP_DROPOFF_DURATION, "Pick-up")
 
             elif trigger == "dropoff":
-                # shouldn't normally hit this before "finish", but just in case
+               
                 self.dropoff_done = True
                 self._do_on_duty_stop(PICKUP_DROPOFF_DURATION, "Drop-off")
                 break
@@ -188,25 +181,22 @@ class TripPlanner:
         return self.segments
 
     def to_daily_logs(self):
-        """
-        Group segments by calendar day so the frontend can draw one
-        ELD grid per day. Any segment crossing midnight is split at the boundary.
-        """
+       
         split_segments = []
         for seg in self.segments:
             curr_start = seg.start_time
             curr_end = seg.end_time
             
-            # Split segment at each midnight it crosses
+          
             while curr_start.date() < curr_end.date():
-                # Find the next midnight
+                
                 next_midnight = datetime.combine(curr_start.date() + timedelta(days=1), datetime.min.time())
                 duration = int((next_midnight - curr_start).total_seconds() / 60)
                 if duration > 0:
                     split_segments.append(Segment(seg.status, curr_start, duration, seg.location_label))
                 curr_start = next_midnight
             
-            # Add the remaining part
+          
             duration = int((curr_end - curr_start).total_seconds() / 60)
             if duration > 0:
                 split_segments.append(Segment(seg.status, curr_start, duration, seg.location_label))
@@ -214,7 +204,7 @@ class TripPlanner:
         days = {}
         for seg in split_segments:
             day_key = seg.start_time.date().isoformat()
-            # Construct a full day layout with basic metadata placeholder
+            
             if day_key not in days:
                 days[day_key] = {
                     "date_formatted": {
@@ -293,6 +283,6 @@ class TripPlanner:
                         "remark": "Off Duty"
                     })
             
-            day_data["segments"] = filled_segments
+      
             
         return days
